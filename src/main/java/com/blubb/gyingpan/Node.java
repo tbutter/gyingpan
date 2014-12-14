@@ -6,10 +6,13 @@ import java.io.ObjectInputStream;
 import java.io.RandomAccessFile;
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
-import java.util.Collections;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 
+import com.blubb.gyingpan.actions.ChangeParentsAction;
+import com.blubb.gyingpan.actions.RenameAction;
+import com.blubb.gyingpan.actions.TrashAction;
 import com.google.api.client.http.FileContent;
 import com.google.api.client.http.GenericUrl;
 import com.google.api.client.http.HttpResponse;
@@ -23,7 +26,7 @@ public class Node implements Serializable {
 	static final String folderType = "application/vnd.google-apps.folder"
 			.intern();
 
-	private String name;
+	String name;
 	String id;
 	String md5;
 	String mimetype;
@@ -32,13 +35,13 @@ public class Node implements Serializable {
 	String etag;
 	String openurl;
 	List<Node> children = null;
-	Node parent;
 	CacheStatus cached = CacheStatus.NotInCache;
 	transient GDrive gd;
+	ArrayList<Node> parents = new ArrayList<Node>();
 
 	Node(String name, String id, String md5, String mimetype,
 			long lastModified, long size, String etag, String openurl,
-			Node parent, GDrive drive) {
+			GDrive drive) {
 		this.gd = drive;
 		this.name = name;
 		this.id = id;
@@ -49,7 +52,6 @@ public class Node implements Serializable {
 		this.lastModified = lastModified;
 		this.size = size;
 		this.etag = etag;
-		this.parent = parent;
 		if (isGoogleFile()) {
 			System.out.println(openurl);
 			this.openurl = openurl;
@@ -97,14 +99,14 @@ public class Node implements Serializable {
 	}
 
 	String getPath() {
-		if (parent == null)
+//		if (parents.isEmpty())
 			return "";
-		return parent.getPath() + "/" + getFileName();
+//		return parents.get(0).getPath() + "/" + getFileName();
 	}
 
 	public synchronized java.io.File cache() throws IOException {
 		synchronized (this) {
-			System.out.println("cache " + id + " " + isDirectory());
+			//System.out.println("cache " + id + " " + isDirectory());
 			if (isDirectory())
 				return null;
 			java.io.File cachefile = cacheFile();
@@ -170,15 +172,19 @@ public class Node implements Serializable {
 
 	public synchronized void flush() {
 		System.out.println("flushing " + id + " " + getPath());
-		if(cached != CacheStatus.Dirty) return;
+		if (cached != CacheStatus.Dirty)
+			return;
 		if (id.startsWith("tobefilled-")) {
 			File newFile = new File();
 			String mimeType = "application/octet-stream";
 			newFile.setMimeType(mimeType);
 			newFile.setModifiedDate(new DateTime(lastModified));
 			newFile.setTitle(name);
-			newFile.setParents(Collections.singletonList(new ParentReference()
-					.setId(parent.id)));
+			ArrayList<ParentReference> prefs = new ArrayList<ParentReference>();
+			for (Node p : parents) {
+				prefs.add(new ParentReference().setId(p.id));
+			}
+			newFile.setParents(prefs);
 			FileContent mediaContent = new FileContent(mimeType, cacheFile());
 			try {
 				File f = gd.service.files().insert(newFile, mediaContent)
@@ -208,5 +214,40 @@ public class Node implements Serializable {
 			}
 		}
 		gd.requestPersist();
+	}
+
+	public void rename(String toName) {
+		System.out.println("rename " + getPath() + " " + toName);
+		synchronized (this) {
+			if (cached != CacheStatus.Dirty) {
+				gd.addAction(new RenameAction(id, toName));
+			}
+			setName(toName);
+		}
+	}
+
+	public void move(Node oldParent, Node toParent) {
+		System.out.println("move " + getPath() + " " + toParent.getPath());
+		synchronized (this) {
+			if (!id.startsWith("tobefilled-")) {
+				gd.addAction(new ChangeParentsAction(id, oldParent.id,
+						toParent.id));
+			}
+			synchronized (gd) {
+				oldParent.children.remove(this);
+				toParent.children.add(this);
+				parents.remove(oldParent);
+				parents.add(toParent);
+			}
+		}
+	}
+	
+	public synchronized void delete(Node parent) {
+		parent.children.remove(this);
+		parents.remove(parent);
+		if (!id.startsWith("tobefilled-")) {
+			gd.addAction(new ChangeParentsAction(id, parent.id, null));
+			if(parents.isEmpty()) gd.addAction(new TrashAction(id));
+		}
 	}
 }

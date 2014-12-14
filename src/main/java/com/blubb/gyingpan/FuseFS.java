@@ -7,6 +7,8 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 
+import com.sun.jna.Platform;
+
 import net.fusejna.DirectoryFiller;
 import net.fusejna.ErrorCodes;
 import net.fusejna.FlockCommand;
@@ -46,7 +48,7 @@ public class FuseFS extends FuseFilesystem {
 
 	@Override
 	public int bmap(String path, FileInfoWrapper info) {
-		return -ErrorCodes.ENOSYS();
+		return -ErrorCodes.firstNonNull(ErrorCodes.ENOTSUP(), ErrorCodes.ENOSYS());
 	}
 
 	@Override
@@ -61,10 +63,10 @@ public class FuseFS extends FuseFilesystem {
 
 	@Override
 	public int create(String path, ModeWrapper mode, FileInfoWrapper info) {
-		if(gdrive.findPath(path) != null) return -ErrorCodes.EEXIST();
+		if(gdrive.findPath(path, null) != null) return -ErrorCodes.EEXIST();
 		String parentname = path.substring(0, path.lastIndexOf('/'));
 		String name = path.substring(path.lastIndexOf('/') + 1);
-		Node parent = gdrive.findPath(parentname);
+		Node parent = gdrive.findPath(parentname, null);
 		if (parent == null)
 			return -ErrorCodes.ENOENT();
 		gdrive.createFile(parent, name);
@@ -103,7 +105,7 @@ public class FuseFS extends FuseFilesystem {
 
 	@Override
 	public int getattr(String path, StatWrapper stat) {
-		Node n = gdrive.findPath(path);
+		Node n = gdrive.findPath(path, null);
 		if (n == null)
 			return -ErrorCodes.ENOENT();
 		stat.setAllTimesMillis(n.lastModified);
@@ -126,22 +128,18 @@ public class FuseFS extends FuseFilesystem {
 
 	@Override
 	protected String[] getOptions() {
-		String opts[] = { "-o", "noappledouble,noapplexattr,iosize=4096" };
+		if(Platform.isMac()) {
+			String opts[] = { "-o", "noappledouble,noapplexattr,iosize=4096" };
+			return opts;
+		}
+		String opts[] = {};
 		return opts;
 	}
 
 	@Override
 	public int getxattr(String path, String xattr, XattrFiller filler,
 			long size, long position) {
-		System.out.println("xattr " + path + " " + xattr);
-		Node n = gdrive.findPath(path);
-		if (n == null)
-			return -ErrorCodes.ENOENT();
-		if (xattr.equals("user.mime_type"))
-			filler.set(n.mimetype.getBytes(StandardCharsets.UTF_8));
-		else
-			return -ErrorCodes.ENOATTR();
-		return 0;
+		return -ErrorCodes.firstNonNull(ErrorCodes.ENOSYS(), ErrorCodes.ENOTSUP());
 	}
 
 	@Override
@@ -151,13 +149,12 @@ public class FuseFS extends FuseFilesystem {
 
 	@Override
 	public int link(String path, String target) {
-		return -ErrorCodes.ENOSYS();
+		return -ErrorCodes.firstNonNull(ErrorCodes.ENOSYS(), ErrorCodes.ENOTSUP());
 	}
 
 	@Override
 	public int listxattr(String path, XattrListFiller filler) {
-		filler.add("user.mime_type");
-		return 0;
+		return -ErrorCodes.firstNonNull(ErrorCodes.ENOSYS(), ErrorCodes.ENOTSUP());
 	}
 
 	@Override
@@ -169,10 +166,10 @@ public class FuseFS extends FuseFilesystem {
 	@Override
 	public int mkdir(String path, ModeWrapper mode) {
 		System.out.println("mkdir " + path);
-		if(gdrive.findPath(path) != null) return -ErrorCodes.EEXIST();
+		if(gdrive.findPath(path, null) != null) return -ErrorCodes.EEXIST();
 		String parentname = path.substring(0, path.lastIndexOf('/'));
 		String name = path.substring(path.lastIndexOf('/') + 1);
-		Node parent = gdrive.findPath(parentname);
+		Node parent = gdrive.findPath(parentname, null);
 		if (parent == null)
 			return -ErrorCodes.ENOENT();
 		gdrive.createDir(parent, name);
@@ -188,7 +185,7 @@ public class FuseFS extends FuseFilesystem {
 	@Override
 	public int open(String path, FileInfoWrapper info) {
 		System.out.println("open " + path);
-		Node n = gdrive.findPath(path);
+		Node n = gdrive.findPath(path, info);
 		if (n != null) {
 			if (n.isDirectory())
 				return 0;
@@ -208,8 +205,8 @@ public class FuseFS extends FuseFilesystem {
 	@Override
 	public int read(String path, ByteBuffer buffer, long size, long offset,
 			FileInfoWrapper info) {
-		System.out.println("read " + path + " " + offset + " " + size);
-		Node n = gdrive.findPath(path);
+		//System.out.println("read " + path + " " + offset + " " + size);
+		Node n = gdrive.findPath(path, info);
 		if (n.isDirectory())
 			return -ErrorCodes.EISDIR();
 		try {
@@ -232,7 +229,7 @@ public class FuseFS extends FuseFilesystem {
 	@Override
 	public int readdir(String path, DirectoryFiller filler) {
 		// System.out.println("readdir(" + path + ")");
-		Node n = gdrive.findPath(path);
+		Node n = gdrive.findPath(path, null);
 		// filler.add(".", "..");
 		for (Node c : n.children) {
 			filler.add(c.getFileName());
@@ -257,13 +254,13 @@ public class FuseFS extends FuseFilesystem {
 
 	@Override
 	public int removexattr(String path, String xattr) {
-		return 0;
+		return -ErrorCodes.firstNonNull(ErrorCodes.ENOSYS(), ErrorCodes.ENOTSUP());
 	}
 
 	@Override
 	public int rename(String path, String newName) {
 		System.out.println("rename " + path + " " + newName);
-		Node n = gdrive.findPath(path);
+		Node n = gdrive.findPath(path, null);
 		if (n == null)
 			return -ErrorCodes.ENOENT();
 		String fromDir = path.substring(0, path.lastIndexOf('/'));
@@ -271,36 +268,37 @@ public class FuseFS extends FuseFilesystem {
 		String toDir = newName.substring(0, newName.lastIndexOf('/'));
 		String toName = newName.substring(newName.lastIndexOf('/') + 1);
 		if (fromDir.equals(toDir)) {
-			gdrive.rename(n, toName);
+			n.rename(toName);
 		} else {
 			if (!fromName.equals(toName)) {
-				gdrive.rename(n, toName);
+				n.rename(toName);
 			}
-			Node toNode = gdrive.findPath(toDir);
+			Node toNode = gdrive.findPath(toDir, null);
 			if (toNode == null)
 				return -ErrorCodes.ENOENT();
-			gdrive.move(n, toNode);
+			n.move(gdrive.findPath(fromDir, null), toNode);
 		}
 		return 0;
 	}
 
 	@Override
 	public int rmdir(String path) {
-		Node n = gdrive.findPath(path);
+		Node n = gdrive.findPath(path, null);
 		if (n == null)
 			return -ErrorCodes.ENOENT();
 		if (n.children != null && n.children.size() > 0)
 			return -ErrorCodes.ENOTEMPTY();
 		if (!n.isDirectory())
 			return -ErrorCodes.ENOTDIR();
-		gdrive.removeDirectory(n);
+		String parentname = path.substring(0, path.lastIndexOf('/'));
+		n.delete(gdrive.findPath(parentname, null));
 		return 0;
 	}
 
 	@Override
 	public int setxattr(String path, String xattr, ByteBuffer value, long size,
 			int flags, int position) {
-		return 0;
+		return -ErrorCodes.firstNonNull(ErrorCodes.ENOSYS(), ErrorCodes.ENOTSUP());
 	}
 
 	@Override
@@ -319,7 +317,7 @@ public class FuseFS extends FuseFilesystem {
 	public int truncate(String path, long offset) {
 		System.out.println("truncate " + path + " " + offset);
 
-		Node n = gdrive.findPath(path);
+		Node n = gdrive.findPath(path, null);
 		if (n == null)
 			return -ErrorCodes.ENOENT();
 		try {
@@ -333,20 +331,21 @@ public class FuseFS extends FuseFilesystem {
 
 	@Override
 	public int unlink(String path) {
-		Node n = gdrive.findPath(path);
+		Node n = gdrive.findPath(path, null);
 		if (n == null)
 			return -ErrorCodes.ENOENT();
 		if (n.children != null && n.children.size() > 0)
 			return -ErrorCodes.ENOTEMPTY();
 		if (n.isDirectory())
 			return -ErrorCodes.EISDIR();
-		gdrive.removeFile(n);
+		String parentname = path.substring(0, path.lastIndexOf('/'));
+		n.delete(gdrive.findPath(parentname, null));
 		return 0;
 	}
 
 	@Override
 	public int utimens(String path, TimeBufferWrapper wrapper) {
-		Node n = gdrive.findPath(path);
+		Node n = gdrive.findPath(path, null);
 		if (n == null)
 			return -ErrorCodes.ENOENT();
 		wrapper.ac_setMillis(n.lastModified);
@@ -357,7 +356,7 @@ public class FuseFS extends FuseFilesystem {
 	public int write(String path, ByteBuffer buf, long bufSize,
 			long writeOffset, FileInfoWrapper info) {
 		System.out.println("write " + path + " " + writeOffset + " " + bufSize);
-		Node n = gdrive.findPath(path);
+		Node n = gdrive.findPath(path, info);
 		if(n == null) return -ErrorCodes.ENOENT();
 		if (n.isDirectory())
 			return -ErrorCodes.EISDIR();

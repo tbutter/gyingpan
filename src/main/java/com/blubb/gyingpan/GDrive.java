@@ -1,5 +1,7 @@
 package com.blubb.gyingpan;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -9,10 +11,13 @@ import java.io.InputStreamReader;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.RandomAccessFile;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -20,6 +25,11 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import net.fusejna.StructFuseFileInfo.FileInfoWrapper;
+
+import com.blubb.gyingpan.actions.Action;
+import com.blubb.gyingpan.actions.RenameAction;
+import com.google.api.services.drive.DriveRequest;
 import com.google.api.client.auth.oauth2.Credential;
 import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow;
 import com.google.api.client.googleapis.auth.oauth2.GoogleTokenResponse;
@@ -48,7 +58,7 @@ public class GDrive {
 	Node root = null;
 	private final java.io.File jdrivedir;
 	final java.io.File cachedir;
-	Drive service;
+	public Drive service;
 	long nextChangeId = 0;
 	boolean persistRequested = false;
 	ScheduledExecutorService executor = Executors
@@ -72,8 +82,8 @@ public class GDrive {
 				.setAccessType("offline")
 				.setApprovalPrompt("auto")
 				.setDataStoreFactory(
-						new FileDataStoreFactory(new java.io.File(jdrivedir, "driveauth")))
-				.build();
+						new FileDataStoreFactory(new java.io.File(jdrivedir,
+								"driveauth"))).build();
 		Credential credential = flow.loadCredential(username);
 		if (credential == null) {
 			String url = flow.newAuthorizationUrl()
@@ -94,8 +104,8 @@ public class GDrive {
 		service = new Drive.Builder(httpTransport, jsonFactory, credential)
 				.build();
 		try {
-			ObjectInputStream fis = new ObjectInputStream(new FileInputStream(
-					new java.io.File(jdrivedir, "filecache.db")));
+			ObjectInputStream fis = new ObjectInputStream(new BufferedInputStream(new FileInputStream(
+					new java.io.File(jdrivedir, "filecache.db"))));
 			nextChangeId = fis.readLong();
 			root = (Node) fis.readObject();
 			fis.close();
@@ -111,7 +121,7 @@ public class GDrive {
 		executor.scheduleWithFixedDelay(() -> update(), 60, 60,
 				TimeUnit.SECONDS);
 		Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
-			
+
 			@Override
 			public void run() {
 				doPersist();
@@ -133,17 +143,25 @@ public class GDrive {
 		// finding parents
 		int folderCount = 0;
 		int fileCount = 0;
-		ListMultimap<String, File> parentMap = ArrayListMultimap.create();
+		ListMultimap<String, Node> parentMap = ArrayListMultimap.create();
 		root = new Node("", rootFolder, "", Node.folderType, 0, 0,
-				"rootFolderEtag", null, null, this);
+				"rootFolderEtag", null, this);
 		for (File f : files) {
 			if (f.getMimeType().equals("application/vnd.google-apps.folder")) {
 				folderCount++;
 			} else {
 				fileCount++;
 			}
+			Node n = new Node(f.getTitle(), f.getId(), f.getMd5Checksum(), f
+					.getMimeType(), f.getModifiedDate() == null ? 0
+					: f.getModifiedDate().getValue(), f
+					.getFileSize() == null ? 0 : f.getFileSize()
+					.longValue(), f.getEtag(),
+					f.getAlternateLink(), this);
 			for (ParentReference pr : f.getParents()) {
-				parentMap.put(pr.getId(), f);
+				parentMap.put(
+						pr.getId(),
+						n);
 			}
 		}
 		System.out.println();
@@ -156,13 +174,15 @@ public class GDrive {
 	}
 
 	void doPersist() {
+		System.out.println("persist start");
 		synchronized (this) {
 			ObjectOutputStream fos;
 			try {
-				fos = new ObjectOutputStream(new FileOutputStream(
-						new java.io.File(jdrivedir, "filecache.db")));
+				fos = new ObjectOutputStream(new BufferedOutputStream(new FileOutputStream(
+						new java.io.File(jdrivedir, "filecache.db")), 128*1024));
 				fos.writeLong(nextChangeId);
 				fos.writeObject(root);
+				fos.flush();
 				fos.close();
 				System.out.println("saved");
 			} catch (FileNotFoundException e) {
@@ -171,6 +191,7 @@ public class GDrive {
 				e.printStackTrace();
 			}
 		}
+		System.out.println("persist done");
 	}
 
 	private void flush() {
@@ -215,10 +236,9 @@ public class GDrive {
 							java.io.File cachefile = n.cacheFile();
 							if (cachefile.exists())
 								cachefile.delete();
-							Node parent = n.parent;
-							if (parent != null)
+							for(Node parent : n.parents) {
 								parent.children.remove(n);
-							n.parent = null;
+							}
 						}
 					}
 				} else {
@@ -227,18 +247,19 @@ public class GDrive {
 					if (n == null) {
 						System.out.println("new file");
 						File f = c.getFile();
+						Node newn = new Node(f.getTitle(), f.getId(),
+								f.getMd5Checksum(), f.getMimeType(),
+								f.getModifiedDate() == null ? 0 : f
+										.getModifiedDate().getValue(),
+								f.getFileSize() == null ? 0 : f
+										.getFileSize().longValue(),
+								f.getEtag(), f.getAlternateLink(),
+								this);
 						for (ParentReference pr : f.getParents()) {
 							Node parent = findNode(pr.getId());
 							if (parent != null) {
-								Node newn = new Node(f.getTitle(), f.getId(),
-										f.getMd5Checksum(), f.getMimeType(),
-										f.getModifiedDate() == null ? 0 : f
-												.getModifiedDate().getValue(),
-										f.getFileSize() == null ? 0 : f
-												.getFileSize().longValue(),
-										f.getEtag(), f.getAlternateLink(),
-										parent, this);
 								parent.children.add(newn);
+								newn.parents.add(parent);
 								System.out.println(newn.getPath());
 							}
 						}
@@ -256,23 +277,37 @@ public class GDrive {
 								if (cachefile.exists())
 									cachefile.delete();
 							}
-							Node oldparent = n.parent;
-							if (oldparent != null)
-								oldparent.children.remove(n);
-							n.parent = null;
-							// create the new node
-							for (ParentReference pr : f.getParents()) {
-								Node parent = findNode(pr.getId());
-								Node newn = new Node(f.getTitle(), f.getId(),
-										f.getMd5Checksum(), f.getMimeType(),
-										f.getModifiedDate() == null ? 0 : f
-												.getModifiedDate().getValue(),
-										f.getFileSize() == null ? 0 : f
-												.getFileSize().longValue(),
-										f.getEtag(), f.getAlternateLink(),
-										parent, this);
-								newn.children = n.children;
-								parent.children.add(newn);
+
+							ArrayList<Node> parents = new ArrayList<Node>();
+							for(ParentReference pr : f.getParents()) {
+								Node p = findNode(pr.getId());
+								if(p == null) {
+									System.out.println("ERROR parent not found "+pr.getId());
+								} else {
+									parents.add(p);
+									
+								}
+							}
+
+							ArrayList<Node> removedParents = new ArrayList<Node>(n.parents);
+							removedParents.removeAll(parents);
+							for(Node r : removedParents) {
+								n.parents.remove(r);
+								r.children.remove(n);
+							}
+							for(Node p : parents) {
+								if(!n.parents.contains(p)) {
+									p.children.add(n);
+									n.parents.add(p);
+								}
+							}
+
+							n.name = f.getTitle();
+							if(n.cached != CacheStatus.Dirty) {
+								n.md5 = f.getMd5Checksum();
+								n.lastModified = f.getModifiedDate().getValue();
+								n.size = (f.getFileSize() != null) ? f.getFileSize().longValue() : 0;
+								n.etag = f.getEtag();
 							}
 						}
 					}
@@ -281,10 +316,11 @@ public class GDrive {
 			}
 			if (changed)
 				requestPersist();
-		} catch (IOException e) {
+		} catch (Throwable e) {
 			e.printStackTrace();
 		}
-		if(persistRequested) {
+		System.out.println("updating done");
+		if (persistRequested) {
 			persistRequested = false;
 			doPersist();
 		}
@@ -307,40 +343,34 @@ public class GDrive {
 		return null;
 	}
 
-	public void removeDirectory(Node n) {
-		try {
-			synchronized (n) {
-				service.files().trash(n.id).execute();
-				synchronized (n.parent) {
-					synchronized (this) {
-						n.parent.children.remove(n);
-					}
+	HashMap<Long, WeakReference<Node>> filehandles = new HashMap<Long, WeakReference<Node>>();
+	
+	int lastFileHandle = 1;
+	
+	public synchronized Node findPath(String s, FileInfoWrapper fiw) {
+		if(fiw != null && fiw.fh() > 0) {
+			WeakReference<Node> wr = filehandles.get(fiw.fh());
+			if(wr != null) {
+				Node n = wr.get();
+				if(n == null) {
+					filehandles.remove(wr);
+					fiw.fh(0);
+				} else {
+					return n;
 				}
 			}
-		} catch (IOException e) {
-			e.printStackTrace();
 		}
-	}
-
-	public void removeFile(Node n) {
-		try {
-			synchronized (n) {
-				service.files().trash(n.id).execute();
-				synchronized (n.parent) {
-					synchronized (this) {
-						n.parent.children.remove(n);
-					}
-				}
-			}
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-	}
-
-	public Node findPath(String s) {
+		Node n = null;
 		if (s.equals("/") || s.isEmpty())
-			return root;
-		return findPath(root, s);
+			n = root;
+		if(n == null)
+			n = findPath(root, s);
+		if(n != null) {
+			long fh = lastFileHandle++;
+			filehandles.put(fh, new WeakReference<Node>(n));
+			if(fiw != null) fiw.fh(fh);
+		}
+		return n;
 	}
 
 	private synchronized Node findPath(Node n, String s) {
@@ -372,20 +402,16 @@ public class GDrive {
 		}
 	}
 
-	private void initChildren(Node n, ListMultimap<String, File> parentMap) {
-		for (File f : parentMap.get(n.id)) {
+	private void initChildren(Node n, ListMultimap<String, Node> parentMap) {
+		for (Node c : parentMap.get(n.id)) {
 			try {
-				Node c = new Node(f.getTitle(), f.getId(), f.getMd5Checksum(),
-						f.getMimeType(), f.getModifiedDate() == null ? 0 : f
-								.getModifiedDate().getValue(),
-						f.getFileSize() == null ? 0 : f.getFileSize()
-								.longValue(), f.getEtag(),
-						f.getAlternateLink(), n, this);
 				n.children.add(c);
+				c.parents.add(n);
 				if (n.mimetype == Node.folderType)
 					initChildren(c, parentMap);
 			} catch (Throwable t) {
-				System.out.println(f);
+				System.err.println(c.id);
+				t.printStackTrace();
 			}
 		}
 	}
@@ -410,7 +436,7 @@ public class GDrive {
 				request.setPageToken(files.getNextPageToken());
 				retry = 0;
 			} catch (IOException e) {
-				System.out.println("An error occurred: " + e);
+				System.out.println("An error occurred: " + e); 
 				if (retry > 3)
 					request.setPageToken(null);
 				else {
@@ -430,46 +456,8 @@ public class GDrive {
 		cacheExecutorService.submit(() -> n.cache());
 	}
 
-	public void rename(Node n, String toName) {
-		System.out.println("rename " + n.getPath() + " " + toName);
-		try {
-			synchronized (n) {
-				if (n.cached != CacheStatus.Dirty) {
-					File f = service.files().get(n.id).execute();
-					f.setTitle(toName);
-					service.files().patch(n.id, f).execute();
-				}
-				n.setName(toName);
-			}
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-	}
-
-	public void move(Node n, Node toParent) {
-		System.out.println("move " + n.getPath() + " " + toParent.getPath());
-		try {
-			synchronized (n) {
-				Node oldParent = n.parent;
-				if (n.cached != CacheStatus.Dirty) {
-					File f = service.files().get(n.id).execute();
-					service.files().patch(n.id, f)
-							.setRemoveParents(oldParent.id)
-							.setAddParents(toParent.id).execute();
-				}
-				synchronized (this) {
-					oldParent.children.remove(n);
-					toParent.children.add(n);
-					n.parent = toParent;
-				}
-			}
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-	}
-
 	public void createDir(Node parent, String name) {
-		synchronized (parent) {
+		synchronized (this) {
 			try {
 				String newid = service
 						.files()
@@ -481,17 +469,20 @@ public class GDrive {
 												.singletonList(new ParentReference()
 														.setId(parent.id))))
 						.execute().getId();
-				parent.children.add(new Node(name, newid, "", Node.folderType,
-						System.currentTimeMillis(), 0, "", null, parent, this));
+				Node n = new Node(name, newid, "", Node.folderType,
+						System.currentTimeMillis(), 0, "", null, this);
+				parent.children.add(n);
+				n.parents.add(parent);
 			} catch (IOException e) {
 				e.printStackTrace();
 			}
 		}
 	}
 
-	public void createFile(Node parent, String name) {
+	public synchronized void createFile(Node parent, String name) {
 		Node n = new Node(name, "tobefilled-" + UUID.randomUUID().toString(),
-				"", "", System.currentTimeMillis(), 0, "", null, parent, this);
+				"", "", System.currentTimeMillis(), 0, "", null, this);
+		n.parents.add(parent);
 		java.io.File f = n.cacheFile();
 		try {
 			new RandomAccessFile(f, "rw").close();
@@ -505,11 +496,11 @@ public class GDrive {
 			parent.children.add(n);
 		}
 	}
-	
+
 	void requestPersist() {
 		persistRequested = true;
 	}
-	
+
 	HashSet<Node> dirtyNodes = new HashSet<Node>();
 
 	void addToDirtyNodes(Node n) {
@@ -517,5 +508,9 @@ public class GDrive {
 			dirtyNodes.add(n);
 			requestPersist();
 		}
+	}
+
+	public void addAction(Action action) {
+		action.run(this);
 	}
 }
