@@ -134,9 +134,16 @@ public class Node implements Serializable {
 				cached = CacheStatus.InCache;
 				return cachefile;
 			}
+			if (cachefile.exists()) {
+				if (cachefile.length() == getSize()
+						&& Math.abs(cachefile.lastModified() - lastModified) < 1500) {
+					cached = CacheStatus.InCache;
+					return cachefile;
+				}
+			}
 
 			String url = gd.service.files().get(id).execute().getDownloadUrl();
-			System.out.println(url);
+			GYMain.setStatus(url);
 			HttpResponse resp = gd.service.getRequestFactory()
 					.buildGetRequest(new GenericUrl(url)).execute();
 			FileOutputStream fos = new FileOutputStream(cachefile);
@@ -191,9 +198,9 @@ public class Node implements Serializable {
 						.execute();
 				java.io.File oldCacheFile = cacheFile();
 				id = f.getId();
-				System.out.println("rename " + oldCacheFile + " to "
+				GYMain.setStatus("rename " + oldCacheFile + " to "
 						+ cacheFile());
-				System.out.println("success: "
+				GYMain.setStatus("success: "
 						+ oldCacheFile.renameTo(cacheFile()));
 				cached = CacheStatus.InCache;
 			} catch (IOException e) {
@@ -217,7 +224,7 @@ public class Node implements Serializable {
 	}
 
 	public void rename(String toName) {
-		System.out.println("rename " + getPath() + " " + toName);
+		GYMain.setStatus("rename " + getPath() + " " + toName);
 		synchronized (this) {
 			if (cached != CacheStatus.Dirty) {
 				gd.addAction(new RenameAction(id, toName));
@@ -227,7 +234,7 @@ public class Node implements Serializable {
 	}
 
 	public void move(Node oldParent, Node toParent) {
-		System.out.println("move " + getPath() + " " + toParent.getPath());
+		GYMain.setStatus("move " + getPath() + " " + toParent.getPath());
 		synchronized (this) {
 			if (!id.startsWith("tobefilled-")) {
 				gd.addAction(new ChangeParentsAction(id, oldParent.id,

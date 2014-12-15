@@ -5,9 +5,6 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
-
-import com.sun.jna.Platform;
 
 import net.fusejna.DirectoryFiller;
 import net.fusejna.ErrorCodes;
@@ -22,6 +19,8 @@ import net.fusejna.XattrFiller;
 import net.fusejna.XattrListFiller;
 import net.fusejna.types.TypeMode.ModeWrapper;
 import net.fusejna.types.TypeMode.NodeType;
+
+import com.sun.jna.Platform;
 
 public class FuseFS extends FuseFilesystem {
 	GDrive gdrive;
@@ -184,7 +183,7 @@ public class FuseFS extends FuseFilesystem {
 
 	@Override
 	public int open(String path, FileInfoWrapper info) {
-		System.out.println("open " + path);
+		GYMain.setStatus("open " + path);
 		Node n = gdrive.findPath(path, info);
 		if (n != null) {
 			if (n.isDirectory())
