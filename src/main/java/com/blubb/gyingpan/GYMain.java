@@ -33,7 +33,7 @@ public class GYMain {
 	
 	static void setStatus(String s) {
 		System.out.println(s);
-		statusLabel.setLabel(s);
+		if(statusLabel != null) statusLabel.setLabel(s);
 		if(logstream != null) {
 			logstream.println(s);
 			logstream.flush();

@@ -49,8 +49,8 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ListMultimap;
 
 public class GDrive {
-	private final static String CLIENT_ID = "986587539645-1keh36kli6put6n2a3k1vfl8k985iopi.apps.googleusercontent.com";
-	private final static String CLIENT_SECRET = "kdIeEEs5oKjMyaJgf3IFAScz";
+	public final static String CLIENT_ID = "986587539645-1keh36kli6put6n2a3k1vfl8k985iopi.apps.googleusercontent.com";
+	public final static String CLIENT_SECRET = "kdIeEEs5oKjMyaJgf3IFAScz";
 	private final static String REDIRECT_URI = "urn:ietf:wg:oauth:2.0:oob";
 	Node root = null;
 	private final java.io.File jdrivedir;
