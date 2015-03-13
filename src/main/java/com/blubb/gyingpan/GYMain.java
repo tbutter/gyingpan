@@ -113,7 +113,8 @@ public class GYMain {
 		JsonArray accounts = config.getJsonArray("accounts");
 		for (JsonObject account : accounts.getValuesAs(JsonObject.class)) {
 			GDrive g = new GDrive(account.getString("name"));
-			new FuseFS(g).mount(new File(account.getString("path")));
+			new FuseFS(g).mount(new File(account.getString("path")), false);
+			System.out.println("after mount "+account.getString("name"));
 		}
 	}
 
