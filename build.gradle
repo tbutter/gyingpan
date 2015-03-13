@@ -1,5 +1,6 @@
 apply plugin: 'java'
 apply plugin: 'maven'
+apply plugin: 'eclipse'
 
 group = 'com.blubb.gyingpan'
 version = '0.0.1-SNAPSHOT'
@@ -12,7 +13,9 @@ targetCompatibility = 1.8
 
 
 repositories {
-        
+  jcenter()
+  mavenLocal()
+  mavenCentral()
      maven { url "http://repo.maven.apache.org/maven2" }
 }
 dependencies {
