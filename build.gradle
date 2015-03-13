@@ -1,0 +1,22 @@
+apply plugin: 'java'
+apply plugin: 'maven'
+
+group = 'com.blubb.gyingpan'
+version = '0.0.1-SNAPSHOT'
+
+description = """gyingpan"""
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+
+
+repositories {
+        
+     maven { url "http://repo.maven.apache.org/maven2" }
+}
+dependencies {
+    compile group: 'fuse-jna', name: 'fuse-jna', version:'1.0.3'
+    compile group: 'com.google.apis', name: 'google-api-services-drive', version:'v2-rev143-1.19.0'
+    compile group: 'org.glassfish', name: 'javax.json', version:'1.0.4'
+}
