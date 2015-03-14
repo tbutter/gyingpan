@@ -30,10 +30,15 @@ import com.blubb.gyingpan.actions.Action;
 import com.google.api.client.auth.oauth2.Credential;
 import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow;
 import com.google.api.client.googleapis.auth.oauth2.GoogleTokenResponse;
+import com.google.api.client.http.HttpBackOffIOExceptionHandler;
+import com.google.api.client.http.HttpBackOffUnsuccessfulResponseHandler;
+import com.google.api.client.http.HttpRequest;
+import com.google.api.client.http.HttpRequestInitializer;
 import com.google.api.client.http.HttpTransport;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.JsonFactory;
 import com.google.api.client.json.jackson2.JacksonFactory;
+import com.google.api.client.util.ExponentialBackOff;
 import com.google.api.client.util.store.FileDataStoreFactory;
 import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.Drive.About;
@@ -96,9 +101,21 @@ public class GDrive {
 					.setRedirectUri(REDIRECT_URI).execute();
 			credential = flow.createAndStoreCredential(response, username);
 		}
-
+		final Credential fcredential = credential;
 		// Create a new authorized API client
 		service = new Drive.Builder(httpTransport, jsonFactory, credential)
+			.setHttpRequestInitializer(
+				new HttpRequestInitializer() {
+					@Override
+					public void initialize(HttpRequest request)
+							throws IOException {
+						fcredential.initialize(request);
+						request.setIOExceptionHandler(new HttpBackOffIOExceptionHandler(
+								new ExponentialBackOff()));
+						request.setUnsuccessfulResponseHandler(new HttpBackOffUnsuccessfulResponseHandler(
+								new ExponentialBackOff()));
+					}
+				})
 				.build();
 		try {
 			ObjectInputStream fis = new ObjectInputStream(new BufferedInputStream(new FileInputStream(

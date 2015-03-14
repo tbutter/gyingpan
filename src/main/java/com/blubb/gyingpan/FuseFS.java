@@ -354,7 +354,6 @@ public class FuseFS extends FuseFilesystem {
 	@Override
 	public int write(String path, ByteBuffer buf, long bufSize,
 			long writeOffset, FileInfoWrapper info) {
-		System.out.println("write " + path + " " + writeOffset + " " + bufSize);
 		Node n = gdrive.findPath(path, info);
 		if(n == null) return -ErrorCodes.ENOENT();
 		if (n.isDirectory())
