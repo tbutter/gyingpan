@@ -13,10 +13,13 @@ import java.util.List;
 import com.blubb.gyingpan.actions.ChangeParentsAction;
 import com.blubb.gyingpan.actions.RenameAction;
 import com.blubb.gyingpan.actions.TrashAction;
+import com.google.api.client.googleapis.media.MediaHttpUploader;
+import com.google.api.client.googleapis.media.MediaHttpUploaderProgressListener;
 import com.google.api.client.http.FileContent;
 import com.google.api.client.http.GenericUrl;
 import com.google.api.client.http.HttpResponse;
 import com.google.api.client.util.DateTime;
+import com.google.api.services.drive.Drive.Files.Insert;
 import com.google.api.services.drive.model.File;
 import com.google.api.services.drive.model.ParentReference;
 
@@ -178,7 +181,7 @@ public class Node implements Serializable {
 	}
 
 	public synchronized void flush() {
-		System.out.println("flushing " + id + " " + getPath());
+		GYMain.setStatus("flushing " + id + " " + getPath());
 		if (cached != CacheStatus.Dirty)
 			return;
 		if (id.startsWith("tobefilled-")) {
@@ -194,8 +197,25 @@ public class Node implements Serializable {
 			newFile.setParents(prefs);
 			FileContent mediaContent = new FileContent(mimeType, cacheFile());
 			try {
-				File f = gd.service.files().insert(newFile, mediaContent)
-						.execute();
+				Insert insert = gd.service.files().insert(newFile, mediaContent);
+				long startTime = System.currentTimeMillis();
+				if (insert.getMediaHttpUploader() != null)
+					insert.getMediaHttpUploader().setProgressListener(
+							new MediaHttpUploaderProgressListener() {
+
+								@Override
+								public void progressChanged(
+										MediaHttpUploader uploader)
+										throws IOException {
+									if(uploader.getProgress() > 0.0001) {
+										long now = System.currentTimeMillis();
+										double eta = (now-startTime)/uploader.getProgress()-(now-startTime);
+										GYMain.setStatus(String.format("%s progress %.2f%% (eta %ds)\n", name, uploader.getProgress()*100, (int)eta/1000));
+									}
+								}
+							});
+				File f = insert.execute();
+				
 				java.io.File oldCacheFile = cacheFile();
 				id = f.getId();
 				GYMain.setStatus("rename " + oldCacheFile + " to "
