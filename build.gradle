@@ -23,3 +23,14 @@ dependencies {
     compile group: 'com.google.apis', name: 'google-api-services-drive', version:'v2-rev143-1.19.0'
     compile group: 'org.glassfish', name: 'javax.json', version:'1.0.4'
 }
+
+task fatJar(type: Jar) {
+	manifest {
+        attributes 'Implementation-Title': 'gyingpan',  
+        	'Implementation-Version': version,
+        	'Main-Class': 'com.blubb.gyingpan.GYMain'
+    }
+    baseName = project.name + '-all'
+    from { configurations.compile.collect { it.isDirectory() ? it : zipTree(it) } }
+    with jar
+}
