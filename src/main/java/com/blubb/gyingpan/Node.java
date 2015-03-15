@@ -25,13 +25,12 @@ import com.google.api.services.drive.model.ParentReference;
 
 public class Node implements Serializable {
 
-	private static final long serialVersionUID = 1L;
+	private static final long serialVersionUID = 2L;
 	static final String folderType = "application/vnd.google-apps.folder"
 			.intern();
 
 	String name;
 	String id;
-	String md5;
 	String mimetype;
 	long lastModified;
 	long size;
@@ -42,13 +41,12 @@ public class Node implements Serializable {
 	transient GDrive gd;
 	ArrayList<Node> parents = new ArrayList<Node>();
 
-	Node(String name, String id, String md5, String mimetype,
+	Node(String name, String id, String mimetype,
 			long lastModified, long size, String etag, String openurl,
 			GDrive drive) {
 		this.gd = drive;
 		this.name = name;
 		this.id = id;
-		this.md5 = md5;
 		this.mimetype = mimetype.intern();
 		if (this.mimetype == folderType)
 			children = new LinkedList<Node>();
