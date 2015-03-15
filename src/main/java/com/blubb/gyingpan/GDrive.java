@@ -158,17 +158,10 @@ public class GDrive {
 		List<File> files = retrieveAllFiles(service);
 		GYMain.setStatus("time " + (System.currentTimeMillis() - time));
 		// finding parents
-		int folderCount = 0;
-		int fileCount = 0;
 		ListMultimap<String, Node> parentMap = ArrayListMultimap.create();
 		root = new Node("", rootFolder, Node.folderType, 0, 0,
 				"rootFolderEtag", null, this);
 		for (File f : files) {
-			if (f.getMimeType().equals("application/vnd.google-apps.folder")) {
-				folderCount++;
-			} else {
-				fileCount++;
-			}
 			Node n = new Node(f.getTitle(), f.getId(), 
 					f.getMimeType(), f.getModifiedDate() == null ? 0 : f
 							.getModifiedDate().getValue(),
